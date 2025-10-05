@@ -13,64 +13,47 @@ class VisitorChatController extends Controller
 {
     public function initSession(Request $request)
     {
-        $request->validate([
-            'api_key' => 'required|string|exists:users,api_key', // api_key'in geçerli ve users tablosunda var olduğunu doğrula
-            'session_id' => 'required|string',
-            'visitor_ip' => 'nullable|ip',
-        ]);
-
-        // 1. API anahtarı ile doğru kullanıcıyı veritabanından bul.
-        $user = User::where('api_key', $request->api_key)->firstOrFail();
-
-        // 2. Sohbeti, bulunan kullanıcının ID'si ile oluştur veya mevcut olanı getir.
-        $chatSession = ChatSession::firstOrCreate(
-            ['session_id' => $request->session_id],
-            [
-                'user_id' => $user->id, // <-- ARTIK ID DİNAMİK OLARAK ATANIYOR
-                'visitor_ip' => $request->visitor_ip,
-                'status' => 'active',
-                'last_activity' => now()
-            ]
-        );
-
-        $messages = $chatSession->messages()->orderBy('created_at', 'asc')->get();
-
-        return response()->json([
-            'success' => true,
-            'session_id' => $chatSession->session_id,
-            'messages' => $messages
-        ]);
+        return response()->json(['success' => true, 'messages' => []]);
     }
 
     public function sendMessage(Request $request)
     {
+        if ($request->filled('honeypot_email')) {
+            return response()->json(['success' => true]); // Bot'u kandırmak için başarılı cevap dön
+        }
+
         $request->validate([
+            'api_key' => 'required|string|exists:users,api_key',
             'session_id' => 'required|string',
             'message' => 'required|string|max:1000',
-            'sender_type' => 'required|in:visitor,admin',
         ]);
 
-        $session = ChatSession::where('session_id', $request->session_id)
-            ->where('user_id', auth()->id())
-            ->firstOrFail();
+        $user = User::where('api_key', $request->api_key)->firstOrFail();
 
-        $session->update(['last_activity' => now()]);
+        $chatSession = ChatSession::firstOrCreate(
+            ['session_id' => $request->session_id],
+            [
+                'user_id' => $user->id,
+                'visitor_ip' => $request->ip(),
+                'status' => 'active',
+            ]
+        );
 
-        $message = ChatMessage::create([
-            'chat_session_id' => $session->id,
-            'sender_type' => $request->sender_type,
+        $chatSession->update(['last_activity' => now()]);
+
+        $message = $chatSession->messages()->create([
+            'sender_type' => 'visitor',
             'message' => $request->message,
         ]);
 
-        // Visitor mesajıysa admin'e bildirim gönder
-        if ($request->sender_type === 'visitor' && $session->user->fcm_token) {
-            $fcmService = new FcmService();
-            $fcmService->sendNotification(
-                $session->user->fcm_token,
-                'New Message',
-                ($session->visitor_name ?? 'Visitor') . ': ' . $request->message,
-                ['session_id' => $session->session_id]
-            );
+        if ($user->fcm_token) {
+             $fcmService = new FcmService();
+             $fcmService->sendNotification(
+                 $user->fcm_token,
+                 $chatSession->visitor_name ?? 'Yeni Mesaj',
+                 $request->message,
+                 ['session_id' => $chatSession->session_id]
+             );
         }
 
         return response()->json(['success' => true, 'data' => $message]);
@@ -78,11 +61,20 @@ class VisitorChatController extends Controller
 
     public function getMessages(Request $request)
     {
-        $request->validate(['session_id' => 'required|string']);
+        $request->validate([
+            'api_key' => 'required|string|exists:users,api_key',
+            'session_id' => 'required|string',
+        ]);
+
+        $user = User::where('api_key', $request->api_key)->firstOrFail();
 
         $session = ChatSession::where('session_id', $request->session_id)
-            ->where('user_id', auth()->id())
-            ->firstOrFail();
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$session) {
+            return response()->json(['success' => true, 'messages' => []]);
+        }
 
         return response()->json([
             'success' => true,
@@ -92,15 +84,29 @@ class VisitorChatController extends Controller
 
     public function updateVisitorInfo(Request $request)
     {
+        if ($request->filled('honeypot_email')) {
+            return response()->json(['success' => true]); // Bot'u kandırmak için başarılı cevap dön
+        }
+
         $request->validate([
+            'api_key' => 'required|string|exists:users,api_key',
             'session_id' => 'required|string',
             'name' => 'required|string|max:255',
             'email' => 'required|email|max:255',
+
         ]);
 
-        $session = ChatSession::where('session_id', $request->session_id)
-            ->where('user_id', auth()->id())
-            ->firstOrFail();
+        $user = User::where('api_key', $request->api_key)->firstOrFail();
+
+        // Sohbeti bul veya OLUŞTUR. Çünkü kullanıcı bilgi girdikten sonra mesaj atmayabilir.
+        $session = ChatSession::firstOrCreate(
+            ['session_id' => $request->session_id],
+            [
+                'user_id' => $user->id,
+                'visitor_ip' => $request->ip(),
+                'status' => 'active'
+            ]
+        );
 
         $session->update([
             'visitor_name' => $request->name,
