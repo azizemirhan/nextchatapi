@@ -36,4 +36,14 @@ class ChatSession extends Model
             ->where('sender_type', 'visitor')
             ->where('is_read', false);
     }
+
+    public function lastMessage()
+    {
+        return $this->hasOne(ChatMessage::class)->latestOfMany();
+    }
+
+    public function scopeForUser($query, $userId)
+    {
+        return $query->where('user_id', $userId);
+    }
 }

@@ -11,13 +11,14 @@ class ChatController extends Controller
 {
     public function getSessions()
     {
-        $sessions = ChatSession::where('user_id', auth()->id())
-            ->with(['messages' => fn($q) => $q->latest()->limit(1)])
+        $sessions = ChatSession::forUser(auth()->id())
+            // ESKİ HALİ: ->with('messages')
+            ->with('lastMessage') // YENİ HALİ
             ->withCount('unreadVisitorMessages')
-            ->orderBy('last_activity', 'desc')
+            ->latest('last_activity')
             ->get();
 
-        return response()->json(['success' => true, 'sessions' => $sessions]);
+        return response()->json(['sessions' => $sessions]);
     }
 
     public function getSession($sessionId)
@@ -67,4 +68,24 @@ class ChatController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    // ChatController.php -> getSessions() metodu
+
+    public function deleteSession($sessionId)
+    {
+        try {
+            $session = ChatSession::where('id', $sessionId)
+                ->forUser(auth()->id())
+                ->firstOrFail();
+
+            // İlişkili tüm mesajları da silmek için
+            $session->messages()->delete();
+            $session->delete();
+
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Session could not be deleted.'], 500);
+        }
+    }
+
 }

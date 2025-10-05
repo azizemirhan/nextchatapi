@@ -14,29 +14,31 @@ class VisitorChatController extends Controller
     public function initSession(Request $request)
     {
         $request->validate([
-            'api_key' => 'required|string',
+            'api_key' => 'required|string|exists:users,api_key', // api_key'in geçerli ve users tablosunda var olduğunu doğrula
             'session_id' => 'required|string',
-            'visitor_ip' => 'required|string',
+            'visitor_ip' => 'nullable|ip',
         ]);
 
-        $user = User::where('api_key', $request->api_key)->first();
+        // 1. API anahtarı ile doğru kullanıcıyı veritabanından bul.
+        $user = User::where('api_key', $request->api_key)->firstOrFail();
 
-        if (!$user) {
-            return response()->json(['success' => false, 'message' => 'Invalid API key'], 401);
-        }
-
-        $token = $user->createToken('visitor-session')->plainTextToken;
-
-        $session = ChatSession::firstOrCreate(
-            ['session_id' => $request->session_id, 'user_id' => $user->id],
-            ['visitor_ip' => $request->visitor_ip, 'last_activity' => now()]
+        // 2. Sohbeti, bulunan kullanıcının ID'si ile oluştur veya mevcut olanı getir.
+        $chatSession = ChatSession::firstOrCreate(
+            ['session_id' => $request->session_id],
+            [
+                'user_id' => $user->id, // <-- ARTIK ID DİNAMİK OLARAK ATANIYOR
+                'visitor_ip' => $request->visitor_ip,
+                'status' => 'active',
+                'last_activity' => now()
+            ]
         );
+
+        $messages = $chatSession->messages()->orderBy('created_at', 'asc')->get();
 
         return response()->json([
             'success' => true,
-            'token' => $token,
-            'session_id' => $session->session_id,
-            'messages' => $session->messages
+            'session_id' => $chatSession->session_id,
+            'messages' => $messages
         ]);
     }
 

@@ -25,6 +25,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/sessions/{sessionId}', [ChatController::class, 'getSession']);
             Route::post('/sessions/{sessionId}/send', [ChatController::class, 'sendMessage']);
             Route::delete('/messages/{messageId}', [ChatController::class, 'deleteMessage']);
+            Route::delete('/sessions/{sessionId}', [ChatController::class, 'deleteSession']);
         });
     });
 
