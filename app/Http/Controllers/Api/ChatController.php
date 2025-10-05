@@ -1,0 +1,70 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\ChatSession;
+use App\Models\ChatMessage;
+use Illuminate\Http\Request;
+
+class ChatController extends Controller
+{
+    public function getSessions()
+    {
+        $sessions = ChatSession::where('user_id', auth()->id())
+            ->with(['messages' => fn($q) => $q->latest()->limit(1)])
+            ->withCount('unreadVisitorMessages')
+            ->orderBy('last_activity', 'desc')
+            ->get();
+
+        return response()->json(['success' => true, 'sessions' => $sessions]);
+    }
+
+    public function getSession($sessionId)
+    {
+        $session = ChatSession::where('session_id', $sessionId)
+            ->where('user_id', auth()->id())
+            ->with(['messages' => fn($q) => $q->orderBy('created_at')])
+            ->firstOrFail();
+
+        $session->unreadVisitorMessages()->update(['is_read' => true]);
+
+        return response()->json([
+            'success' => true,
+            'messages' => $session->messages
+        ]);
+    }
+
+    public function sendMessage(Request $request, $sessionId)
+    {
+        $request->validate(['message' => 'required|string|max:1000']);
+
+        $session = ChatSession::where('session_id', $sessionId)
+            ->where('user_id', auth()->id())
+            ->firstOrFail();
+
+        $session->update(['last_activity' => now()]);
+
+        $message = ChatMessage::create([
+            'chat_session_id' => $session->id,
+            'sender_type' => 'admin',
+            'admin_id' => auth()->id(),
+            'message' => $request->message,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $message]);
+    }
+
+    public function deleteMessage($messageId)
+    {
+        $message = ChatMessage::findOrFail($messageId);
+
+        if ($message->session->user_id !== auth()->id() || $message->sender_type !== 'admin') {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $message->delete();
+
+        return response()->json(['success' => true]);
+    }
+}
