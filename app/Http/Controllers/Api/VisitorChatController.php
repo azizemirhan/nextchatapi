@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\NewChatMessage;
 use App\Http\Controllers\Controller;
 use App\Models\ChatSession;
 use App\Models\ChatMessage;
@@ -19,7 +20,7 @@ class VisitorChatController extends Controller
     public function sendMessage(Request $request)
     {
         if ($request->filled('honeypot_email')) {
-            return response()->json(['success' => true]); // Bot'u kandırmak için başarılı cevap dön
+            return response()->json(['success' => true]);
         }
 
         $request->validate([
@@ -46,14 +47,20 @@ class VisitorChatController extends Controller
             'message' => $request->message,
         ]);
 
+        // <-- YENİ EKLENEN SATIR BURASI
+        // Mesajı yayına göndermeden önce ilişkili chatSession modelini yüklüyoruz.
+        $message->load('chatSession');
+
+        broadcast(new NewChatMessage($message))->toOthers();
+
         if ($user->fcm_token) {
-             $fcmService = new FcmService();
-             $fcmService->sendNotification(
-                 $user->fcm_token,
-                 $chatSession->visitor_name ?? 'Yeni Mesaj',
-                 $request->message,
-                 ['session_id' => $chatSession->session_id]
-             );
+            $fcmService = new FcmService();
+            $fcmService->sendNotification(
+                $user->fcm_token,
+                $chatSession->visitor_name ?? 'Yeni Mesaj',
+                $request->message,
+                ['session_id' => $chatSession->session_id]
+            );
         }
 
         return response()->json(['success' => true, 'data' => $message]);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\NewChatMessage;
 use App\Http\Controllers\Controller;
 use App\Models\ChatSession;
 use App\Models\ChatMessage;
@@ -38,22 +39,24 @@ class ChatController extends Controller
 
     public function sendMessage(Request $request, $sessionId)
     {
-        $request->validate(['message' => 'required|string|max:1000']);
+        $request->validate(['message' => 'required|string']);
 
         $session = ChatSession::where('session_id', $sessionId)
             ->where('user_id', auth()->id())
             ->firstOrFail();
 
-        $session->update(['last_activity' => now()]);
-
-        $message = ChatMessage::create([
-            'chat_session_id' => $session->id,
+        $message = $session->messages()->create([
             'sender_type' => 'admin',
-            'admin_id' => auth()->id(),
             'message' => $request->message,
         ]);
 
-        return response()->json(['success' => true, 'data' => $message]);
+        // <-- YENİ EKLENEN SATIR BURASI
+        // Mesajı yayına göndermeden önce ilişkili chatSession modelini yüklüyoruz.
+        $message->load('chatSession');
+
+        broadcast(new NewChatMessage($message))->toOthers();
+
+        return response()->json(['data' => $message], 201);
     }
 
     public function deleteMessage($messageId)
