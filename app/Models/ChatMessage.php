@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ChatMessage extends Model
@@ -29,5 +30,10 @@ class ChatMessage extends Model
     public function admin()
     {
         return $this->belongsTo(User::class, 'admin_id');
+    }
+
+    public function chatSession(): BelongsTo
+    {
+        return $this->belongsTo(ChatSession::class, 'chat_session_id');
     }
 }
